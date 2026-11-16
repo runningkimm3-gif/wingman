@@ -40,33 +40,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
 
       let styleInstruction = "";
-      if (replyStyle === 'tease') styleInstruction = `STYLE: TEASE. Roast her slightly, challenge her, or be playfully aloof.`;
-      else if (replyStyle === 'chill') styleInstruction = `STYLE: CHILL. Low investment. Act busy. Very short 2-3 word answers.`;
-      else if (replyStyle === 'flirty') styleInstruction = `STYLE: FLIRTY. Smooth, suggestive, try to move the conversation toward a date.`;
-      else if (replyStyle === 'argue') styleInstruction = `STYLE: ARGUE. Play devil's advocate. Disagree with her, challenge her logic, be slightly cocky.`;
-      else if (replyStyle === 'persuade') styleInstruction = `STYLE: PERSUADE. Try to convince her to do what you want (like meeting up) using smooth logic.`;
-      else styleInstruction = `STYLE: NORMAL. Friendly but confident. Have your own opinion.`;
+      if (replyStyle === 'tease') styleInstruction = `TONE: Playfully roast her or challenge her.`;
+      else if (replyStyle === 'chill') styleInstruction = `TONE: Low investment, unbothered, very short.`;
+      else if (replyStyle === 'flirty') styleInstruction = `TONE: Smooth, romantic, try to move toward a date.`;
+      else if (replyStyle === 'argue') styleInstruction = `TONE: Disagree with her, play devil's advocate, be slightly cocky.`;
+      else if (replyStyle === 'persuade') styleInstruction = `TONE: Convince her to do what you want (like meeting up).`;
+      else styleInstruction = `TONE: Friendly but confident.`;
 
       let directionInstruction = "";
       if (autoDirection && autoDirection.trim() !== '') {
-        directionInstruction = `\nCRITICAL AUTO-PILOT DIRECTION: The user wants you to steer the conversation this way: "${autoDirection.trim()}". You MUST incorporate this into your reply.`;
+        directionInstruction = `\nCRITICAL DIRECTION: You MUST steer the conversation this way: "${autoDirection.trim()}".`;
       }
 
-      const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant.
+      const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant. You are the user.
       
-      YOUR MISSION: Generate a reply specifically to HER LAST MESSAGE: "${lastMessageFromHer}"${transcriptionContext}
+      YOUR MISSION: Write the EXACT text message to reply to HER LAST MESSAGE: "${lastMessageFromHer}"${transcriptionContext}
       ${directionInstruction}
       
       ABSOLUTE RULES:
-      1. DO NOT reply to your own past messages. IGNORE your own history.
-      2. NEVER NARRATE. Only output the exact text message to send. 
-      3. LANGUAGE MATCHING (CRITICAL): 
-         - If her last message is in Burmese script (မြန်မာစာ), you MUST reply in natural Burmese script (မြန်မာစာ). 
-         - If her last message is in English or Myanglish, reply in casual Gen-Z English or Myanglish ("twal lr?", "kyaay ya lr?"). 
-         - Match her exact language style.
-      4. FORMAT: All lowercase. NO periods at the end. Short (1 sentence max).
+      1. ONLY OUTPUT THE RAW TEXT MESSAGE. Do not put quotes around it. Do not explain it.
+      2. NEVER NARRATE. NEVER say "I am teasing you" or "Here is a reply". 
+      3. LANGUAGE MATCHING: If she texts in Burmese (မြန်မာစာ), reply in Burmese script (မြန်မာစာ). If she texts in English/Myanglish, reply in Gen-Z English/Myanglish ("twal lr?").
+      4. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
       
-      ${styleInstruction}
+      EXAMPLES OF WHAT NOT TO DO:
+      BAD: "I'm teasing her about being late."
+      BAD: "Playful reply to her message."
+      BAD: "Here is a warm response: hello!"
+
+      EXAMPLES OF WHAT TO DO:
+      GOOD: "always late smh 😭"
+      GOOD: "twal lr? let's get coffee"
+      GOOD: "u are so weird for that"
+      
+      TONE STYLE: ${styleInstruction}
 
       Chat History for context:
       ---
@@ -76,10 +83,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       Return STRICT JSON: 
       { 
         "vibe_review": "A short 1-sentence analysis of the current vibe.",
-        "playful": "string", 
-        "warm": "string", 
-        "bold": "string", 
-        "auto_reply": "string" 
+        "playful": "The exact text message", 
+        "warm": "The exact text message", 
+        "bold": "The exact text message", 
+        "auto_reply": "The exact text message" 
       }`;
 
       const controller = new AbortController();
@@ -95,10 +102,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           model: TEXT_MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Reply to her last message: "${lastMessageFromHer}" using the ${replyStyle} style.` }
+            { role: 'user', content: `Write the exact reply text for her last message using the ${replyStyle} style.` }
           ],
           response_format: { type: "json_object" },
-          temperature: 0.95
+          temperature: 0.9
         }),
         signal: controller.signal
       });
