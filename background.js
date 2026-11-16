@@ -7,14 +7,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   (async () => {
     try {
-      const { apiKey, partnerName, messages, voiceNote, replyStyle } = request.payload;
+      const { apiKey, partnerName, messages, voiceNote, replyStyle, autoDirection } = request.payload;
       
       if (!apiKey) {
         sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' });
         return;
       }
 
-      // 1. FIND HER LAST MESSAGE
       const herMessages = messages.filter(m => m.from === 'them');
       if (herMessages.length === 0) {
         sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' });
@@ -48,16 +47,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       else if (replyStyle === 'persuade') styleInstruction = `STYLE: PERSUADE. Try to convince her to do what you want (like meeting up) using smooth logic.`;
       else styleInstruction = `STYLE: NORMAL. Friendly but confident. Have your own opinion.`;
 
-      // 2. FORCE THE AI TO ONLY REPLY TO HER MESSAGE
+      let directionInstruction = "";
+      if (autoDirection && autoDirection.trim() !== '') {
+        directionInstruction = `\nCRITICAL AUTO-PILOT DIRECTION: The user wants you to steer the conversation this way: "${autoDirection.trim()}". You MUST incorporate this into your reply.`;
+      }
+
       const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant.
       
       YOUR MISSION: Generate a reply specifically to HER LAST MESSAGE: "${lastMessageFromHer}"${transcriptionContext}
+      ${directionInstruction}
       
       ABSOLUTE RULES:
-      1. DO NOT reply to your own past messages. Even if your last message in the history was "i hope u would...", you must IGNORE it and find a way to continue the conversation based on her vibe, or wait for her to answer it.
-      2. NEVER NARRATE. Do not say "I am teasing". ONLY output the exact text message to send. 
-      3. LANGUAGE: If she texts in Burmese (မြန်မာစာ), reply in natural Burmese or Myanglish ("twal lr?"). If English, reply in Gen-Z English.
-      4. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
+      1. DO NOT reply to your own past messages. IGNORE your own history.
+      2. NEVER NARRATE. Only output the exact text message to send. 
+      3. LANGUAGE MATCHING (CRITICAL): 
+         - If her last message is in Burmese script (မြန်မာစာ), you MUST reply in natural Burmese script (မြန်မာစာ). 
+         - If her last message is in English or Myanglish, reply in casual Gen-Z English or Myanglish ("twal lr?", "kyaay ya lr?"). 
+         - Match her exact language style.
+      4. FORMAT: All lowercase. NO periods at the end. Short (1 sentence max).
       
       ${styleInstruction}
 
@@ -69,10 +76,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       Return STRICT JSON: 
       { 
         "vibe_review": "A short 1-sentence analysis of the current vibe.",
-        "playful": "string (The actual text to send)", 
-        "warm": "string (The actual text to send)", 
-        "bold": "string (The actual text to send)", 
-        "auto_reply": "string (The actual text to send)" 
+        "playful": "string", 
+        "warm": "string", 
+        "bold": "string", 
+        "auto_reply": "string" 
       }`;
 
       const controller = new AbortController();
