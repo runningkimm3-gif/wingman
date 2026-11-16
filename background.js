@@ -1,44 +1,82 @@
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const TEXT_MODEL = 'openai/gpt-oss-120b';
+const WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const TEXT_MODEL = 'openai/gpt-oss-120b'; 
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type !== 'GENERATE_REPLIES') return false;
 
   (async () => {
     try {
-      const { apiKey, partnerName, messages, draft, memory } = request.payload;
+      const { apiKey, partnerName, messages, voiceNote, replyStyle } = request.payload;
       
       if (!apiKey) {
         sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' });
         return;
       }
 
-      const systemPrompt = `You are Cupid, an ultra-casual Gen-Z wingman from Yangon, Myanmar. You are texting on behalf of the user to their crush.
-      
-      CRITICAL RULES (FAILURE TO FOLLOW WILL RESULT IN A BAD RESPONSE):
-      1. LANGUAGE: You MUST reply in "Myanglish" (Burmese written in English letters) mixed with Gen-Z English slang. 
-         - Example Myanglish: "kyaay ya lr?", "twal lr?", "nay lr?", "a kyaung twr lr?", "pyaw tr lr?", "sis", "bro".
-         - Example English Slang: "ngl", "lowkey", "fr", "wyd", "hbu", "idk", "bffr", "vibe".
-      2. TONE: Lowercase only. No periods at the end of sentences. Keep it extremely short (1-2 sentences).
-      3. VIBE: Playful, teasing, slightly unserious, but smooth. Do NOT sound like a customer service bot. Do NOT use formal Burmese script (like ဟာ, ဆရာ) unless the other person sends it first.
-      4. If the conversation is dead (e.g., just "hello"), tease them for being dry or ask what they're doing later.
-      
-      Context: Partner Name: ${partnerName}. Memory: ${JSON.stringify(memory || [])}.
-      
-      Return STRICT JSON: { "playful": "string", "warm": "string", "bold": "string", "reasoning": "string", "updated_memory": ["string"], "ghost_warning": boolean }
-      Each reply MUST be under 220 chars.`;
+      // 1. FIND HER LAST MESSAGE
+      const herMessages = messages.filter(m => m.from === 'them');
+      if (herMessages.length === 0) {
+        sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' });
+        return;
+      }
+      const lastMessageFromHer = herMessages[herMessages.length - 1].text;
+
+      let transcriptionContext = '';
+      if (voiceNote) {
+        const formData = new FormData();
+        formData.append('file', voiceNote, 'voice.ogg');
+        formData.append('model', 'whisper-large-v3-turbo');
+        const audioRes = await fetch(WHISPER_URL, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+          body: formData
+        });
+        if (audioRes.ok) {
+          const audioData = await audioRes.json();
+          transcriptionContext = `\n\nVOICE NOTE FROM ${partnerName}: "${audioData.text}"`;
+        }
+      }
 
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
 
-      const userContent = [
-        { 
-          type: "text", 
-          text: `My draft: ${draft || 'none'}\n\nChat History:\n${formattedHistory}\n\nWrite 3 Myanglish Gen-Z replies:` 
-        }
-      ];
+      let styleInstruction = "";
+      if (replyStyle === 'tease') styleInstruction = `STYLE: TEASE. Roast her slightly, challenge her, or be playfully aloof.`;
+      else if (replyStyle === 'chill') styleInstruction = `STYLE: CHILL. Low investment. Act busy. Very short 2-3 word answers.`;
+      else if (replyStyle === 'flirty') styleInstruction = `STYLE: FLIRTY. Smooth, suggestive, try to move the conversation toward a date.`;
+      else if (replyStyle === 'argue') styleInstruction = `STYLE: ARGUE. Play devil's advocate. Disagree with her, challenge her logic, be slightly cocky.`;
+      else if (replyStyle === 'persuade') styleInstruction = `STYLE: PERSUADE. Try to convince her to do what you want (like meeting up) using smooth logic.`;
+      else styleInstruction = `STYLE: NORMAL. Friendly but confident. Have your own opinion.`;
+
+      // 2. FORCE THE AI TO ONLY REPLY TO HER MESSAGE
+      const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant.
+      
+      YOUR MISSION: Generate a reply specifically to HER LAST MESSAGE: "${lastMessageFromHer}"${transcriptionContext}
+      
+      ABSOLUTE RULES:
+      1. DO NOT reply to your own past messages. Even if your last message in the history was "i hope u would...", you must IGNORE it and find a way to continue the conversation based on her vibe, or wait for her to answer it.
+      2. NEVER NARRATE. Do not say "I am teasing". ONLY output the exact text message to send. 
+      3. LANGUAGE: If she texts in Burmese (မြန်မာစာ), reply in natural Burmese or Myanglish ("twal lr?"). If English, reply in Gen-Z English.
+      4. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
+      
+      ${styleInstruction}
+
+      Chat History for context:
+      ---
+      ${formattedHistory}
+      ---
+      
+      Return STRICT JSON: 
+      { 
+        "vibe_review": "A short 1-sentence analysis of the current vibe.",
+        "playful": "string (The actual text to send)", 
+        "warm": "string (The actual text to send)", 
+        "bold": "string (The actual text to send)", 
+        "auto_reply": "string (The actual text to send)" 
+      }`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000); 
 
       const response = await fetch(GROQ_URL, {
         method: 'POST',
@@ -50,10 +88,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           model: TEXT_MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent }
+            { role: 'user', content: `Reply to her last message: "${lastMessageFromHer}" using the ${replyStyle} style.` }
           ],
           response_format: { type: "json_object" },
-          temperature: 0.9 
+          temperature: 0.95
         }),
         signal: controller.signal
       });
@@ -67,11 +105,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       const data = await response.json();
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        sendResponse({ error: 'API_ERROR', message: 'Groq returned an empty response.' });
-        return;
-      }
-
       const result = JSON.parse(data.choices[0].message.content);
       sendResponse(result);
     } catch (err) {
