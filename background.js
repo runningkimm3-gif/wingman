@@ -6,7 +6,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   (async () => {
     try {
-      const { apiKey, partnerName, messages, replyStyle, autoDirection } = request.payload;
+      const { apiKey, partnerName, messages, replyStyle, autoDirection, globalStyle } = request.payload;
       
       if (!apiKey) {
         sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' });
@@ -21,6 +21,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
       const lastMessageFromHer = herMessages[herMessages.length - 1].text;
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
+
+      // Fallback style logic
+      let styleContext = "";
+      const myCurrentChatMessages = messages.filter(m => m.from === 'me').map(m => m.text);
+      
+      if (myCurrentChatMessages.length > 2) {
+        styleContext = `Here is how the user has been texting in THIS chat: "${myCurrentChatMessages.join(' | ')}"`;
+      } else if (globalStyle && globalStyle.length > 0) {
+        styleContext = `This is a new chat, but here is how the user texts in general from other chats: "${globalStyle.slice(0, 15).join(' | ')}"`;
+      } else {
+        styleContext = `No past style available. Just use a casual Gen-Z tone.`;
+      }
 
       let styleInstruction = "";
       if (replyStyle === 'tease') styleInstruction = `Playfully roast her or challenge her (ဟာဆရာ style).`;
@@ -37,6 +49,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant.
       
+      MIMIC THE USER'S STYLE: ${styleContext}
+      
       Chat History for context:
       ---
       ${formattedHistory}
@@ -47,11 +61,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       STRICT RULES:
       1. ONLY OUTPUT THE RAW TEXT MESSAGE. Do not put quotes around it.
       2. NEVER NARRATE. 
-      3. LANGUAGE MATCHING: 
-         - If she texts in Burmese script (မြန်မာစာ), you MUST reply in natural, casual Burmese script (မြန်မာစာ).
-         - If she texts in English, reply in casual English.
-         - DO NOT use Myanglish (Burmese typed in English letters).
-      4. CASUAL BURMESE: If replying in Burmese, use modern Gen-Z Burmese slang (e.g., ဟာ, ဆရာ, စော်နော်, ရှက်စရာ, ပြောတာလား) and avoid formal textbook grammar (like ပါသည်, ဖြစ်ပါသည်).
+      3. LANGUAGE MATCHING: If she texts in Burmese (မြန်မာစာ), reply in Burmese script. If she texts in English, reply in English.
+      4. CASUAL BURMESE: If replying in Burmese, use modern Gen-Z Burmese slang (e.g., ဟာ, ဆရာ, စော်နော်, ရှက်စရာ, ပြောတာလား) and avoid formal textbook grammar.
       5. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
       
       TONE: ${styleInstruction}
