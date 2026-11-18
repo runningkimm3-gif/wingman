@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cupid — AI Wingman",
   "version": "2.0.0",
-  "description": "Premium AI dating co-pilot with memory and vision.",
+  "description": "Premium AI dating co-pilot.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "clipboardWrite"],
   "host_permissions": [
@@ -13,7 +13,8 @@
     "https://web.telegram.org/*",
     "https://web.whatsapp.com/*",
     "https://*.x.com/messages*",
-    "https://*.twitter.com/messages*"
+    "https://*.twitter.com/messages*",
+    "file:///*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -28,7 +29,8 @@
         "https://web.telegram.org/*",
         "https://web.whatsapp.com/*",
         "https://*.x.com/messages*",
-        "https://*.twitter.com/messages*"
+        "https://*.twitter.com/messages*",
+        "file:///*"
       ],
       "js": [
         "adapters/base.js",

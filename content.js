@@ -58,6 +58,8 @@
     .header span { background: linear-gradient(135deg, #f472b6, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     
     .setting-label { font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; display: block;}
+    .helper-text { font-size: 10px; color: #888; margin-top: 4px; line-height: 1.3; }
+    
     input { 
       width: 100%; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(0,0,0,0.1); 
       color: #1A1A1A; padding: 10px 12px; border-radius: 12px; font-size: 13px; 
@@ -65,7 +67,6 @@
     }
     input:focus { border-color: #f472b6; background: #fff; box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.1); }
     
-    /* GROQ BUTTON STYLE */
     .groq-btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 4px;
       margin-top: 6px; font-size: 11px; font-weight: 600; color: #f55036; 
@@ -129,7 +130,6 @@
     <div>
       <span class="setting-label">API Key</span>
       <input type="password" id="api-key" placeholder="gsk_..." autocomplete="off" />
-      <!-- NEW GROQ BUTTON -->
       <a href="https://console.groq.com/keys" target="_blank" class="groq-btn">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
         Get Groq API Key ↗
@@ -139,8 +139,9 @@
     <div class="toggle-row"><span class="toggle-label">Auto-Pilot</span><div class="toggle-switch" id="auto-toggle"></div></div>
     
     <div>
-      <span class="setting-label">Auto-Pilot Direction (Optional)</span>
+      <span class="setting-label">Auto-Pilot Direction</span>
       <input type="text" id="auto-direction" placeholder="e.g. Ask her out for coffee" autocomplete="off" />
+      <div class="helper-text">Auto-Pilot only sends when she texts you first.</div>
     </div>
 
     <div>
@@ -184,13 +185,15 @@
     currentStyle = e.target.getAttribute('data-vibe');
   });
 
-  chrome.storage.local.get(['apiKey'], (res) => {
+  chrome.storage.local.get(['apiKey', 'autoDirection'], (res) => {
     if (res.apiKey) apiKeyInput.value = res.apiKey;
+    if (res.autoDirection) autoDirectionInput.value = res.autoDirection; // Load saved direction
     toggleBtn.classList.remove('active'); 
     chrome.storage.local.set({ autoReply: false }); 
   });
 
   apiKeyInput.addEventListener('input', () => chrome.storage.local.set({ apiKey: apiKeyInput.value }));
+  autoDirectionInput.addEventListener('input', () => chrome.storage.local.set({ autoDirection: autoDirectionInput.value })); // Save direction
   
   toggleBtn.addEventListener('click', () => {
     if (!toggleBtn.classList.contains('active')) {

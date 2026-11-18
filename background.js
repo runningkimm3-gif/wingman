@@ -1,13 +1,12 @@
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
-const TEXT_MODEL = 'openai/gpt-oss-120b'; 
+const TEXT_MODEL = 'llama-3.3-70b-versatile'; 
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type !== 'GENERATE_REPLIES') return false;
 
   (async () => {
     try {
-      const { apiKey, partnerName, messages, voiceNote, replyStyle, autoDirection } = request.payload;
+      const { apiKey, partnerName, messages, replyStyle, autoDirection } = request.payload;
       
       if (!apiKey) {
         sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' });
@@ -19,74 +18,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' });
         return;
       }
+      
       const lastMessageFromHer = herMessages[herMessages.length - 1].text;
-
-      let transcriptionContext = '';
-      if (voiceNote) {
-        const formData = new FormData();
-        formData.append('file', voiceNote, 'voice.ogg');
-        formData.append('model', 'whisper-large-v3-turbo');
-        const audioRes = await fetch(WHISPER_URL, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}` },
-          body: formData
-        });
-        if (audioRes.ok) {
-          const audioData = await audioRes.json();
-          transcriptionContext = `\n\nVOICE NOTE FROM ${partnerName}: "${audioData.text}"`;
-        }
-      }
-
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
 
       let styleInstruction = "";
-      if (replyStyle === 'tease') styleInstruction = `TONE: Playfully roast her or challenge her.`;
-      else if (replyStyle === 'chill') styleInstruction = `TONE: Low investment, unbothered, very short.`;
-      else if (replyStyle === 'flirty') styleInstruction = `TONE: Smooth, romantic, try to move toward a date.`;
-      else if (replyStyle === 'argue') styleInstruction = `TONE: Disagree with her, play devil's advocate, be slightly cocky.`;
-      else if (replyStyle === 'persuade') styleInstruction = `TONE: Convince her to do what you want (like meeting up).`;
-      else styleInstruction = `TONE: Friendly but confident.`;
+      if (replyStyle === 'tease') styleInstruction = `Playfully roast her or challenge her (ဟာဆရာ style).`;
+      else if (replyStyle === 'chill') styleInstruction = `Low investment, unbothered, very short.`;
+      else if (replyStyle === 'flirty') styleInstruction = `Smooth, romantic, try to move toward a date.`;
+      else if (replyStyle === 'argue') styleInstruction = `Disagree with her, play devil's advocate, be slightly cocky.`;
+      else if (replyStyle === 'persuade') styleInstruction = `Convince her to do what you want (like meeting up).`;
+      else styleInstruction = `Friendly but confident.`;
 
       let directionInstruction = "";
       if (autoDirection && autoDirection.trim() !== '') {
-        directionInstruction = `\nCRITICAL DIRECTION: You MUST steer the conversation this way: "${autoDirection.trim()}".`;
+        directionInstruction = `\n🚨 OVERRIDE DIRECTIVE: You MUST steer the conversation this way: "${autoDirection.trim()}".`;
       }
 
-      const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant. You are the user.
+      const systemPrompt = `You are a real Gen-Z guy from Yangon texting a girl. You are NOT an AI assistant.
       
-      YOUR MISSION: Write the EXACT text message to reply to HER LAST MESSAGE: "${lastMessageFromHer}"${transcriptionContext}
-      ${directionInstruction}
-      
-      ABSOLUTE RULES:
-      1. ONLY OUTPUT THE RAW TEXT MESSAGE. Do not put quotes around it. Do not explain it.
-      2. NEVER NARRATE. NEVER say "I am teasing you" or "Here is a reply". 
-      3. LANGUAGE MATCHING: If she texts in Burmese (မြန်မာစာ), reply in Burmese script (မြန်မာစာ). If she texts in English/Myanglish, reply in Gen-Z English/Myanglish ("twal lr?").
-      4. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
-      
-      EXAMPLES OF WHAT NOT TO DO:
-      BAD: "I'm teasing her about being late."
-      BAD: "Playful reply to her message."
-      BAD: "Here is a warm response: hello!"
-
-      EXAMPLES OF WHAT TO DO:
-      GOOD: "always late smh 😭"
-      GOOD: "twal lr? let's get coffee"
-      GOOD: "u are so weird for that"
-      
-      TONE STYLE: ${styleInstruction}
-
       Chat History for context:
       ---
       ${formattedHistory}
       ---
       
+      Your task is to reply to HER LAST MESSAGE: "${lastMessageFromHer}"
+      
+      STRICT RULES:
+      1. ONLY OUTPUT THE RAW TEXT MESSAGE. Do not put quotes around it.
+      2. NEVER NARRATE. 
+      3. LANGUAGE MATCHING: 
+         - If she texts in Burmese script (မြန်မာစာ), you MUST reply in natural, casual Burmese script (မြန်မာစာ).
+         - If she texts in English, reply in casual English.
+         - DO NOT use Myanglish (Burmese typed in English letters).
+      4. CASUAL BURMESE: If replying in Burmese, use modern Gen-Z Burmese slang (e.g., ဟာ, ဆရာ, စော်နော်, ရှက်စရာ, ပြောတာလား) and avoid formal textbook grammar (like ပါသည်, ဖြစ်ပါသည်).
+      5. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
+      
+      TONE: ${styleInstruction}
+      ${directionInstruction}
+      
       Return STRICT JSON: 
       { 
         "vibe_review": "A short 1-sentence analysis of the current vibe.",
-        "playful": "The exact text message", 
-        "warm": "The exact text message", 
-        "bold": "The exact text message", 
-        "auto_reply": "The exact text message" 
+        "playful": "The exact text message to send", 
+        "warm": "The exact text message to send", 
+        "bold": "The exact text message to send", 
+        "auto_reply": "The exact text message to send" 
       }`;
 
       const controller = new AbortController();
@@ -102,10 +79,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           model: TEXT_MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Write the exact reply text for her last message using the ${replyStyle} style.` }
+            { role: 'user', content: `Reply to her last message.` }
           ],
           response_format: { type: "json_object" },
-          temperature: 0.9
+          temperature: 0.85
         }),
         signal: controller.signal
       });
