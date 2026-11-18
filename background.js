@@ -22,14 +22,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const lastMessageFromHer = herMessages[herMessages.length - 1].text;
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
 
-      // Fallback style logic
+      // REDUCE GLOBAL STYLE SIZE to prevent token limits
       let styleContext = "";
       const myCurrentChatMessages = messages.filter(m => m.from === 'me').map(m => m.text);
       
       if (myCurrentChatMessages.length > 2) {
-        styleContext = `Here is how the user has been texting in THIS chat: "${myCurrentChatMessages.join(' | ')}"`;
+        styleContext = `Here is how the user has been texting in THIS chat: "${myCurrentChatMessages.slice(-5).join(' | ')}"`;
       } else if (globalStyle && globalStyle.length > 0) {
-        styleContext = `This is a new chat, but here is how the user texts in general from other chats: "${globalStyle.slice(0, 15).join(' | ')}"`;
+        // Only take the last 5 messages to save tokens
+        styleContext = `This is a new chat, but here is how the user texts in general from other chats: "${globalStyle.slice(0, 5).join(' | ')}"`;
       } else {
         styleContext = `No past style available. Just use a casual Gen-Z tone.`;
       }
@@ -62,7 +63,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       1. ONLY OUTPUT THE RAW TEXT MESSAGE. Do not put quotes around it.
       2. NEVER NARRATE. 
       3. LANGUAGE MATCHING: If she texts in Burmese (မြန်မာစာ), reply in Burmese script. If she texts in English, reply in English.
-      4. CASUAL BURMESE: If replying in Burmese, use modern Gen-Z Burmese slang (e.g., ဟာ, ဆရာ, စော်နော်, ရှက်စရာ, ပြောတာလား) and avoid formal textbook grammar.
+      4. CASUAL BURMESE: If replying in Burmese, use modern Gen-Z Burmese slang.
       5. FORMAT: All lowercase. NO periods at the end. Extremely short (1 sentence max).
       
       TONE: ${styleInstruction}
@@ -107,8 +108,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       const data = await response.json();
-      const result = JSON.parse(data.choices[0].message.content);
-      sendResponse(result);
+      
+      // CATCH JSON PARSE ERRORS
+      try {
+        const result = JSON.parse(data.choices[0].message.content);
+        sendResponse(result);
+      } catch (parseError) {
+        console.error("Cupid Parse Error: The AI did not return valid JSON.", data.choices[0].message.content);
+        sendResponse({ error: 'PARSE_ERROR', message: 'The AI returned a malformed response. Try again.' });
+      }
+      
     } catch (err) {
       sendResponse({ error: 'NETWORK', message: err.message });
     }

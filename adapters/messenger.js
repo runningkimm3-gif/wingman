@@ -17,14 +17,15 @@
       return msgs;
     },
     getDraft: () => { const el = document.querySelector('div[role="main"] div[contenteditable="true"][role="textbox"]'); return el ? el.innerText.trim() : ''; },
-    getLastImage: () => {
-      const imgs = document.querySelectorAll('div[role="main"] img');
-      for (let i = imgs.length - 1; i >= 0; i--) {
-        const src = imgs[i].src;
-        if (src && !src.includes('emoji') && !src.includes('avatar') && src.length > 50) return src;
-      }
-      return null;
-    },
-    insertReply: (text) => window.CupidUtils.insertText(document.querySelector('div[role="main"] div[contenteditable="true"][role="textbox"]'), text)
+    insertReply: (text) => window.CupidUtils.insertText(document.querySelector('div[role="main"] div[contenteditable="true"][role="textbox"]'), text),
+    sendMessage: () => {
+      try {
+        const sendBtn = document.querySelector('div[aria-label="Press enter to send"]')?.closest('[role="button"]');
+        if (sendBtn) { sendBtn.click(); return true; }
+        const enterEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, key: 'Enter', code: 'Enter' });
+        document.querySelector('div[role="main"] div[contenteditable="true"][role="textbox"]')?.dispatchEvent(enterEvent);
+        return true;
+      } catch (e) { return false; }
+    }
   };
 })();

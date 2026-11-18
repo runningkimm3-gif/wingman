@@ -108,15 +108,12 @@
     @keyframes spin { 100% { transform: rotate(360deg); } }
 
     .terminal-box { 
-      background: #0f0f13; 
-      border: 1px solid rgba(255,255,255,0.1); 
+      background: #0f0f13; border: 1px solid rgba(255,255,255,0.1); 
       border-radius: 12px; padding: 12px 14px; 
       font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; 
       font-size: 11px; line-height: 1.5; color: #a78bfa; 
       box-shadow: inset 0 0 20px rgba(0,0,0,0.5), 0 4px 15px rgba(0,0,0,0.1);
-      margin-bottom: 4px;
-      position: relative;
-      overflow: hidden;
+      margin-bottom: 4px; position: relative; overflow: hidden;
     }
     .terminal-text { margin: 0; white-space: pre-wrap; color: #e5e7eb; }
     .terminal-text span.prompt { color: #10b981; font-weight: bold; }
@@ -214,7 +211,6 @@
   apiKeyInput.addEventListener('input', () => chrome.storage.local.set({ apiKey: apiKeyInput.value }));
   autoDirectionInput.addEventListener('input', () => chrome.storage.local.set({ autoDirection: autoDirectionInput.value })); 
   
-  // REMOVED THE 10-MESSAGE LIMIT HERE
   toggleBtn.addEventListener('click', () => {
     toggleBtn.classList.toggle('active');
     chrome.storage.local.set({ autoReply: toggleBtn.classList.contains('active') });
@@ -223,7 +219,6 @@
   dock.addEventListener('click', () => panel.classList.toggle('open'));
   shadow.querySelector('.close').addEventListener('click', () => panel.classList.remove('open'));
 
-  // SAVE USER'S TYPING STYLE GLOBALLY
   async function updateGlobalStyle() {
     try {
       const messages = adapter.getRecentMessages() || [];
@@ -233,16 +228,15 @@
       const res = await chrome.storage.local.get(['cupid_global_style']);
       let globalStyle = res.cupid_global_style || [];
       
-      // Merge new messages and deduplicate, keep last 50
       globalStyle = [...new Set([...myMsgs, ...globalStyle])].slice(0, 50);
       chrome.storage.local.set({ cupid_global_style: globalStyle });
     } catch(e) {}
   }
-  setInterval(updateGlobalStyle, 10000); // Save every 10 seconds
+  setInterval(updateGlobalStyle, 10000); 
 
   async function fetchReplies() {
     const key = apiKeyInput.value.trim();
-    if (!key) return null;
+    if (!key) return { error: 'MISSING_KEY', message: 'API Key is required.' };
 
     dock.classList.add('active-glow');
     genBtn.innerText = 'Processing...';
@@ -256,7 +250,6 @@
       voiceNote = await adapter.getVoiceNote();
     }
 
-    // Get the global style from storage
     const res = await chrome.storage.local.get(['cupid_global_style']);
     const globalStyle = res.cupid_global_style || [];
 
@@ -270,23 +263,32 @@
           voiceNote, 
           replyStyle: currentStyle,
           autoDirection: autoDirectionInput.value,
-          globalStyle: globalStyle // Pass the global style
+          globalStyle: globalStyle 
         } 
       }, (response) => {
         dock.classList.remove('active-glow');
         genBtn.innerText = 'Generate';
         refreshBtn.classList.remove('spin');
-        resolve(response && !response.error ? response : null);
+        
+        if (chrome.runtime.lastError) {
+          resolve({ error: 'RUNTIME_ERROR', message: chrome.runtime.lastError.message });
+        } else if (!response) {
+          resolve({ error: 'NO_RESPONSE', message: 'Background script did not respond.' });
+        } else {
+          resolve(response);
+        }
       });
     });
   }
 
   async function handleGenerate() {
     resultsDiv.innerHTML = '<div style="color:#888;font-size:12px;text-align:center;padding:20px;font-family:monospace;">[SYSTEM] INITIALIZING AI...</div>';
+    
+    // Now we get the full response object (including errors)
     const response = await fetchReplies();
     
-    if (!response) {
-      resultsDiv.innerHTML = '<div style="color:#ef4444;font-size:12px;text-align:center;padding:20px;font-family:monospace;">[ERROR] UNABLE TO GENERATE</div>';
+    if (response.error) {
+      resultsDiv.innerHTML = `<div style="color:#ef4444;font-size:12px;text-align:center;padding:20px;font-family:monospace;">[ERROR] ${response.message || response.error}</div>`;
       return;
     }
 
@@ -327,7 +329,6 @@
   genBtn.addEventListener('click', handleGenerate);
   refreshBtn.addEventListener('click', handleGenerate);
 
-  // AUTO-REPLY ENGINE
   let lastProcessedText = "";
   let isSending = false;
 
@@ -346,7 +347,7 @@
       
       const response = await fetchReplies();
       
-      if (response && response.auto_reply) {
+      if (response && !response.error && response.auto_reply) {
         setTimeout(() => {
           adapter.insertReply(response.auto_reply);
           setTimeout(() => {
@@ -357,6 +358,7 @@
       } else {
         dock.classList.remove('active-glow');
         isSending = false;
+        console.error("Auto-Pilot failed:", response?.message || response?.error);
       }
     }
   }, 3000); 
