@@ -1,0 +1,384 @@
+(() => {
+  console.log('[Cupid] loaded', location.href);
+  if (document.querySelector('[data-cupid-mounted]')) { console.log('[Cupid] already mounted'); return; }
+  if (!window.CupidAdapters) { console.log('[Cupid] no CupidAdapters'); return; }
+
+  let currentLang = 'en';
+  let _shadowRoot = null;
+
+  function localizeUI(lang) {
+    currentLang = lang;
+    try { chrome.storage.local.set({ cupid_lang: lang }); } catch(e) {}
+    updateAllTranslatableElements();
+  }
+
+  function setupLanguageListener(shadow) {
+    _shadowRoot = shadow;
+    const select = shadow.getElementById('lang-select');
+    if (select) select.addEventListener('change', (e) => localizeUI(e.target.value));
+  }
+
+  function updateAllTranslatableElements() {
+    if (!_shadowRoot || typeof t !== 'function') return;
+    const root = _shadowRoot;
+    const safe = (txt) => txt && !txt.startsWith('[') ? txt : null;
+    const apiInput = root.getElementById('api-key');
+    if (apiInput) { const v = safe(t(currentLang, 'apiKeyPlaceholder')); if (v) apiInput.placeholder = v; }
+    const apiLabel = root.getElementById('api-label');
+    if (apiLabel) { const v = safe(t(currentLang, 'apiTitle')); if (v) apiLabel.textContent = v; }
+    const toggleLabel = root.getElementById('toggle-label');
+    if (toggleLabel) { const v = safe(t(currentLang, 'autoPilotLabel')); if (v) toggleLabel.textContent = v; }
+    const langSelect = root.getElementById('lang-select');
+    if (langSelect) langSelect.value = currentLang;
+  }
+
+  const adapters = Object.values(window.CupidAdapters || {});
+  const adapter = adapters.find(a => a?.urlPattern?.test(location.href));
+  if (!adapter) { console.log('[Cupid] no adapter match'); return; }
+  console.log('[Cupid] adapter:', adapter.id);
+
+  const host = document.createElement('div');
+  host.setAttribute('data-cupid-mounted', 'true');
+  host.style.cssText = 'position:fixed; inset:0; z-index:2147483647; pointer-events:none;';
+  document.body.appendChild(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  const style = document.createElement('style');
+  style.textContent = `
+    :host { all: initial; font-family: -apple-system, system-ui, sans-serif; }
+    .dock { position: fixed; bottom: 90px; right: 28px; width: 54px; height: 54px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #fff 0%, #fff5f8 50%, #fce7f3 100%); border: 1.5px solid rgba(236,72,153,0.35); box-shadow: 0 4px 20px rgba(236,72,153,0.25), inset 0 0 15px #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1); pointer-events: auto; }
+    .dock:hover { transform: scale(1.1) translateY(-2px); box-shadow: 0 8px 30px rgba(236,72,153,0.4); }
+    .dock .heart { font-size: 26px; color: #ec4899; filter: drop-shadow(0 1px 2px rgba(236,72,153,0.4)); animation: heartPulse 2s ease-in-out infinite; }
+    @keyframes heartPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+    .dock.load-flash { animation: flash 0.8s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes flash { 0% { transform: scale(0); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+    .dock.active-glow { animation: glow 0.8s infinite alternate; }
+    @keyframes glow { from { box-shadow: 0 0 20px rgba(236,72,153,0.5); } to { box-shadow: 0 0 40px rgba(236,72,153,0.9); } }
+
+    .panel { position: fixed; bottom: 158px; right: 28px; width: 360px; max-height: 78vh; overflow-y: auto; background: linear-gradient(160deg, #ffffff 0%, #fffafc 60%, #fef2f8 100%); border: 1.5px solid #ec4899; border-radius: 14px; padding: 18px; box-shadow: 0 20px 60px rgba(236,72,153,0.2), 0 4px 12px rgba(0,0,0,0.1), inset 0 0 0 4px #fff, inset 0 0 0 5px rgba(236,72,153,0.15); display: none; flex-direction: column; gap: 14px; color: #1a1a1a; pointer-events: auto; scrollbar-width: thin; scrollbar-color: #fbcfe8 transparent; }
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb { background: #fbcfe8; border-radius: 3px; }
+    .panel.open { display: flex; animation: dealPanel 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes dealPanel { from { opacity: 0; transform: translateY(30px) rotate(-3deg) scale(0.94); } to { opacity: 1; transform: translateY(0) rotate(0) scale(1); } }
+    .panel::before { content: '♥'; position: absolute; top: 6px; left: 9px; font-size: 12px; color: #ec4899; opacity: 0.7; font-weight: 900; pointer-events: none; }
+    .panel::after { content: '♥'; position: absolute; bottom: 6px; right: 9px; font-size: 12px; color: #ec4899; opacity: 0.7; font-weight: 900; transform: rotate(180deg); pointer-events: none; }
+
+    .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px dashed rgba(236,72,153,0.3); position: sticky; top: 0; background: #ffffff; z-index: 2; margin: -18px -18px 0; padding: 16px 18px 12px; }
+    .brand { font-size: 16px; font-weight: 800; color: #ec4899; display: flex; align-items: center; gap: 5px; letter-spacing: -0.3px; }
+    .brand-icon { font-size: 15px; color: #ec4899; }
+    .controls { display: flex; gap: 6px; align-items: center; }
+    .controls select { padding: 4px 6px; border-radius: 6px; border: 1px solid #e5e7eb; background: #fff; font-size: 10px; font-weight: 600; cursor: pointer; outline: none; color: #4b5563; }
+    .close-x { cursor: pointer; color: #9ca3af; font-size: 16px; line-height: 1; padding: 4px; border-radius: 4px; transition: all 0.15s; }
+    .close-x:hover { color: #ec4899; background: #fce7f3; }
+
+    .label { font-size: 9px; color: #9ca3af; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; display: block; }
+
+    input[type="password"], input[type="text"] { width: 100%; box-sizing: border-box; background: #fff; border: 1px solid #e5e7eb; color: #1a1a1a; padding: 10px 12px; border-radius: 10px; font-size: 12px; font-family: inherit; outline: none; transition: all 0.2s; }
+    input:focus { border-color: #ec4899; box-shadow: 0 0 0 3px rgba(236,72,153,0.1); }
+    input::placeholder { color: #9ca3af; }
+
+    .groq-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 10px; font-weight: 700; color: #ec4899; text-decoration: none; transition: opacity 0.2s; }
+    .groq-link:hover { opacity: 0.7; text-decoration: underline; }
+
+    .row-toggle { display: flex; align-items: center; justify-content: space-between; background: #fff; padding: 10px 12px; border-radius: 10px; border: 1px solid #e5e7eb; }
+    .row-toggle label { font-size: 12px; font-weight: 600; color: #374151; }
+    .switch { position: relative; width: 38px; height: 22px; background: #e5e7eb; border-radius: 11px; cursor: pointer; transition: 0.3s; }
+    .switch.active { background: linear-gradient(135deg, #ec4899, #a855f7); }
+    .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s cubic-bezier(0.34,1.56,0.64,1); box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+    .switch.active::after { transform: translateX(16px); }
+
+    .vibe-row { display: flex; gap: 6px; overflow-x: auto; padding: 2px; scrollbar-width: none; }
+    .vibe-row::-webkit-scrollbar { display: none; }
+    .vibe-pill { flex: 0 0 auto; padding: 7px 11px; border-radius: 16px; font-size: 10px; font-weight: 800; background: #fff; border: 1.5px solid #fbcfe8; color: #6b7280; cursor: pointer; transition: all 0.2s; white-space: nowrap; text-align: center; }
+    .vibe-pill:hover { border-color: #ec4899; }
+    .vibe-pill.active { background: linear-gradient(135deg, #ec4899, #a855f7); color: #fff; border-color: transparent; box-shadow: 0 3px 10px rgba(236,72,153,0.3); }
+
+    .actions-row { display: flex; gap: 8px; }
+    .btn-action { flex: 1; padding: 12px; border-radius: 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.3px; cursor: pointer; transition: all 0.2s; border: none; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; }
+    .btn-rescan { background: #fff; color: #ec4899; border: 1.5px solid #fbcfe8; }
+    .btn-rescan:hover { background: #fce7f3; border-color: #ec4899; }
+    .btn-deal { background: linear-gradient(135deg, #ec4899, #a855f7); color: #fff; box-shadow: 0 4px 14px rgba(236,72,153,0.35); }
+    .btn-deal:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(236,72,153,0.5); }
+    .btn-action:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .results { display: flex; flex-direction: column; gap: 10px; }
+
+    .vibe-card { position: relative; background: linear-gradient(135deg, #fff 0%, #fff5f9 100%); border: 1.5px solid #fbcfe8; border-radius: 12px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(236,72,153,0.1); animation: dealBubble 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+    .vibe-card::before { content: '♥'; position: absolute; top: 5px; left: 7px; font-size: 10px; color: #fbcfe8; font-weight: 900; }
+    .vibe-card::after { content: '♥'; position: absolute; bottom: 5px; right: 7px; font-size: 10px; color: #fbcfe8; font-weight: 900; transform: rotate(180deg); }
+    .vibe-title { font-size: 9px; color: #ec4899; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+    .vibe-hearts { display: flex; gap: 3px; margin-bottom: 8px; }
+    .vibe-heart { font-size: 18px; line-height: 1; }
+    .vibe-heart.on { color: #ec4899; }
+    .vibe-heart.off { color: #fbcfe8; }
+    .vibe-desc { font-size: 11px; color: #6b7280; line-height: 1.5; }
+
+    .scam-card { background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border: 1.5px solid #ef4444; border-radius: 12px; padding: 14px 16px; animation: scamPulse 2s infinite, dealBubble 0.4s; }
+    @keyframes scamPulse { 0%,100% { box-shadow: 0 4px 16px rgba(239,68,68,0.15); } 50% { box-shadow: 0 4px 24px rgba(239,68,68,0.35); } }
+    .scam-header { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 900; color: #dc2626; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+    .scam-confidence { font-size: 11px; color: #991b1b; font-weight: 700; margin-bottom: 8px; }
+    .scam-flags { margin: 0 0 8px; padding-left: 18px; font-size: 11px; color: #7f1d1d; line-height: 1.6; }
+    .scam-flags li { margin-bottom: 2px; }
+    .scam-advice { background: #fecaca; padding: 8px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; color: #7f1d1d; line-height: 1.4; }
+
+    .bubble { position: relative; background: #fff; border: 1.5px solid #fbcfe8; border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; box-shadow: 0 4px 14px rgba(236,72,153,0.08); transition: all 0.2s; animation: dealBubble 0.5s cubic-bezier(0.34,1.56,0.64,1) backwards; }
+    .bubble:nth-child(2) { transform: rotate(-0.7deg); animation-delay: 0s; }
+    .bubble:nth-child(3) { transform: rotate(0deg); animation-delay: 0.1s; }
+    .bubble:nth-child(4) { transform: rotate(0.7deg); animation-delay: 0.2s; }
+    @keyframes dealBubble { from { opacity: 0; transform: translateY(-20px) rotate(-6deg) scale(0.85); } }
+    .bubble:hover { transform: rotate(0deg) translateX(4px) !important; border-color: #ec4899; box-shadow: 0 8px 24px rgba(236,72,153,0.18); }
+    .bubble::after { content: ''; position: absolute; left: 28px; bottom: -9px; width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 9px solid #fbcfe8; }
+    .bubble::before { content: ''; position: absolute; left: 29px; bottom: -7px; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid #fff; z-index: 1; }
+    .bubble-tone { display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; color: #ec4899; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; }
+    .bubble-tone .suit { font-size: 11px; }
+    .bubble-text { font-size: 13px; line-height: 1.5; color: #1a1a1a; margin-bottom: 10px; word-break: break-word; white-space: pre-wrap; }
+    .bubble-actions { display: flex; gap: 6px; }
+    .bubble-btn { flex: 1; padding: 8px; border-radius: 9px; font-size: 10px; font-weight: 800; cursor: pointer; transition: all 0.2s; border: 1px solid #fbcfe8; background: #fff; color: #ec4899; letter-spacing: 0.3px; font-family: inherit; }
+    .bubble-btn:hover { background: #fce7f3; }
+    .bubble-btn.use { background: linear-gradient(135deg, #ec4899, #a855f7); color: #fff; border-color: transparent; box-shadow: 0 2px 8px rgba(236,72,153,0.3); }
+    .bubble-btn.use:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(236,72,153,0.5); }
+
+    .loading { padding: 20px 14px; text-align: center; font-size: 11px; color: #9ca3af; }
+    .error-msg { padding: 20px 14px; text-align: center; font-size: 11px; color: #ef4444; font-weight: 600; }
+  `;
+  shadow.appendChild(style);
+
+  const dock = document.createElement('div');
+  dock.className = 'dock load-flash';
+  dock.innerHTML = '<span class="heart">♥</span>';
+  setTimeout(() => dock.classList.remove('load-flash'), 800);
+  shadow.appendChild(dock);
+
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.innerHTML = `
+    <div class="header">
+      <div class="brand"><span class="brand-icon">♥</span><span>Cupid</span></div>
+      <div class="controls">
+        <select id="lang-select"><option value="en">EN</option><option value="my">မြန်မာ</option></select>
+        <span class="close-x" id="close-x">✕</span>
+      </div>
+    </div>
+    <div>
+      <span class="label" id="api-label">Authentication</span>
+      <input type="password" id="api-key" placeholder="gsk_..." autocomplete="off" />
+      <a href="https://console.groq.com/keys" target="_blank" class="groq-link">🔑 Get Groq API Key ↗</a>
+    </div>
+    <div class="row-toggle">
+      <label id="toggle-label">Auto-Pilot</label>
+      <div class="switch" id="auto-toggle"></div>
+    </div>
+    <div>
+      <span class="label">Directive</span>
+      <input type="text" id="auto-direction" placeholder="e.g. ask her out for coffee" autocomplete="off" />
+    </div>
+    <div>
+      <span class="label">Vibe</span>
+      <div class="vibe-row" id="vibe-container">
+        <div class="vibe-pill" data-vibe="normal">♠ Normal</div>
+        <div class="vibe-pill active" data-vibe="tease">♥ Tease</div>
+        <div class="vibe-pill" data-vibe="chill">♣ Chill</div>
+        <div class="vibe-pill" data-vibe="flirty">♦ Flirty</div>
+        <div class="vibe-pill" data-vibe="argue">🃏 Argue</div>
+        <div class="vibe-pill" data-vibe="persuade">🎴 Persuade</div>
+      </div>
+    </div>
+    <div class="actions-row">
+      <button class="btn-action btn-rescan" id="rescan-btn"><span>↻</span> Rescan</button>
+      <button class="btn-action btn-deal" id="deal-btn"><span>♥</span> Deal</button>
+    </div>
+    <div class="results" id="results"></div>
+  `;
+  shadow.appendChild(panel);
+  setupLanguageListener(shadow);
+
+  const $ = (id) => shadow.getElementById(id);
+  const apiKeyInput = $('api-key');
+  const toggleBtn = $('auto-toggle');
+  const resultsDiv = $('results');
+  const dealBtn = $('deal-btn');
+  const rescanBtn = $('rescan-btn');
+  const vibeContainer = $('vibe-container');
+  const autoDirectionInput = $('auto-direction');
+
+  let currentStyle = 'tease';
+
+  vibeContainer.addEventListener('click', (e) => {
+    const pill = e.target.closest('.vibe-pill');
+    if (!pill) return;
+    vibeContainer.querySelectorAll('.vibe-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentStyle = pill.dataset.vibe;
+  });
+
+  chrome.storage.local.get(['apiKey', 'autoDirection', 'cupid_lang'], (res) => {
+    if (res.apiKey) apiKeyInput.value = res.apiKey;
+    if (res.autoDirection) autoDirectionInput.value = res.autoDirection;
+    if (res.cupid_lang) localizeUI(res.cupid_lang);
+    toggleBtn.classList.remove('active');
+    chrome.storage.local.set({ autoReply: false });
+  });
+
+  apiKeyInput.addEventListener('input', () => chrome.storage.local.set({ apiKey: apiKeyInput.value }));
+  autoDirectionInput.addEventListener('input', () => chrome.storage.local.set({ autoDirection: autoDirectionInput.value }));
+
+  toggleBtn.addEventListener('click', () => {
+    toggleBtn.classList.toggle('active');
+    chrome.storage.local.set({ autoReply: toggleBtn.classList.contains('active') });
+  });
+
+  dock.addEventListener('click', () => panel.classList.toggle('open'));
+  $('close-x').addEventListener('click', () => panel.classList.remove('open'));
+
+  async function updateGlobalStyle() {
+    try {
+      const messages = adapter.getRecentMessages() || [];
+      const myMsgs = messages.filter(m => m.from === 'me').map(m => m.text);
+      if (myMsgs.length === 0) return;
+      const res = await chrome.storage.local.get(['cupid_global_style']);
+      let globalStyle = res.cupid_global_style || [];
+      globalStyle = [...new Set([...myMsgs, ...globalStyle])].slice(0, 50);
+      chrome.storage.local.set({ cupid_global_style: globalStyle });
+    } catch(e) {}
+  }
+  setInterval(updateGlobalStyle, 10000);
+
+  async function fetchReplies() {
+    const key = apiKeyInput.value.trim();
+    if (!key) return { error: 'MISSING_KEY', message: 'Please add your Groq API key.' };
+
+    dock.classList.add('active-glow');
+    dealBtn.disabled = true;
+    rescanBtn.disabled = true;
+
+    const partnerName = adapter.getPartnerName() || 'Unknown';
+    const messages = adapter.getRecentMessages() || [];
+    const res = await chrome.storage.local.get(['cupid_global_style']);
+    const globalStyle = res.cupid_global_style || [];
+
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: 'GENERATE_REPLIES',
+        payload: { apiKey: key, partnerName, messages, replyStyle: currentStyle, autoDirection: autoDirectionInput.value, globalStyle }
+      }, (response) => {
+        dock.classList.remove('active-glow');
+        dealBtn.disabled = false;
+        rescanBtn.disabled = false;
+        if (chrome.runtime.lastError) resolve({ error: 'RUNTIME_ERROR', message: chrome.runtime.lastError.message });
+        else if (!response) resolve({ error: 'NO_RESPONSE', message: 'Background script did not respond.' });
+        else resolve(response);
+      });
+    });
+  }
+
+  function renderVibeCard(r) {
+    const score = Math.max(1, Math.min(5, r.vibe_score || 3));
+    const hearts = Array.from({ length: 5 }, (_, i) =>
+      `<span class="vibe-heart ${i < score ? 'on' : 'off'}">♥</span>`).join('');
+    const mood = (r.vibe_mood || 'neutral').toUpperCase();
+    const card = document.createElement('div');
+    card.className = 'vibe-card';
+    card.innerHTML = `
+      <div class="vibe-title">♥ VIBE CHECK · ${mood}</div>
+      <div class="vibe-hearts">${hearts}</div>
+      <div class="vibe-desc"></div>`;
+    card.querySelector('.vibe-desc').textContent = r.vibe_review || '';
+    resultsDiv.appendChild(card);
+  }
+
+  function renderScamAlert(scam) {
+    const card = document.createElement('div');
+    card.className = 'scam-card';
+    const flags = (scam.red_flags || []).map(f => `<li></li>`).join('');
+    card.innerHTML = `
+      <div class="scam-header"><span>⚠</span> SCAM ALERT</div>
+      <div class="scam-confidence">Confidence: ${scam.confidence || 0}%</div>
+      ${flags ? `<ul class="scam-flags">${flags}</ul>` : ''}
+      <div class="scam-advice"></div>`;
+    const liEls = card.querySelectorAll('.scam-flags li');
+    (scam.red_flags || []).forEach((f, i) => { if (liEls[i]) liEls[i].textContent = f; });
+    card.querySelector('.scam-advice').textContent = scam.advice || 'Exercise caution. Never send money or personal info.';
+    resultsDiv.appendChild(card);
+  }
+
+  function renderBubble(tone, text) {
+    const suits = { playful: '♠', warm: '♥', bold: '♦' };
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = `
+      <div class="bubble-tone"><span class="suit">${suits[tone] || '♣'}</span> ${tone}</div>
+      <div class="bubble-text"></div>
+      <div class="bubble-actions">
+        <button class="bubble-btn use">♥ Use</button>
+        <button class="bubble-btn copy">📋 Copy</button>
+      </div>`;
+    bubble.querySelector('.bubble-text').textContent = text;
+    bubble.querySelector('.use').addEventListener('click', () => {
+      adapter.insertReply(text);
+      panel.classList.remove('open');
+    });
+    bubble.querySelector('.copy').addEventListener('click', (e) => {
+      navigator.clipboard.writeText(text);
+      const btn = e.currentTarget;
+      const orig = btn.textContent;
+      btn.textContent = '✓ Copied';
+      setTimeout(() => btn.textContent = orig, 1200);
+    });
+    resultsDiv.appendChild(bubble);
+  }
+
+  async function handleGenerate() {
+    resultsDiv.innerHTML = '<div class="loading">Analyzing…</div>';
+    dealBtn.disabled = true;
+    rescanBtn.disabled = true;
+
+    const response = await fetchReplies();
+
+    dealBtn.disabled = false;
+    rescanBtn.disabled = false;
+
+    if (response.error) {
+      resultsDiv.innerHTML = '<div class="error-msg"></div>';
+      resultsDiv.querySelector('.error-msg').textContent = response.message || response.error;
+      return;
+    }
+
+    resultsDiv.innerHTML = '';
+
+    if (response.vibe_review || response.vibe_score || response.vibe_mood) renderVibeCard(response);
+    if (response.scam_alert && response.scam_alert.detected) renderScamAlert(response.scam_alert);
+
+    ['playful', 'warm', 'bold'].forEach(tone => {
+      if (response[tone]) renderBubble(tone, response[tone]);
+    });
+  }
+
+  dealBtn.addEventListener('click', handleGenerate);
+  rescanBtn.addEventListener('click', handleGenerate);
+
+  let lastProcessedText = '';
+  let isSending = false;
+
+  setInterval(async () => {
+    if (!toggleBtn.classList.contains('active') || isSending) return;
+    const messages = adapter.getRecentMessages() || [];
+    if (messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.from === 'them' && lastMsg.text !== lastProcessedText) {
+      lastProcessedText = lastMsg.text;
+      isSending = true;
+      dock.classList.add('active-glow');
+      const response = await fetchReplies();
+      if (response && !response.error && response.auto_reply) {
+        setTimeout(() => {
+          adapter.insertReply(response.auto_reply);
+          setTimeout(() => { adapter.sendMessage(); isSending = false; }, 1500);
+        }, 2000);
+      } else {
+        dock.classList.remove('active-glow');
+        isSending = false;
+      }
+    }
+  }, 3000);
+
+})();

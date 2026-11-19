@@ -1,0 +1,150 @@
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const TEXT_MODEL = 'openai/gpt-oss-120b';
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'GENERATE_REPLIES') return false;
+
+  (async () => {
+    try {
+      const { apiKey, partnerName, messages, replyStyle, autoDirection, globalStyle } = request.payload;
+
+      if (!apiKey) {
+        sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' });
+        return;
+      }
+
+      const herMessages = messages.filter(m => m.from === 'them');
+      if (herMessages.length === 0) {
+        sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' });
+        return;
+      }
+
+      const lastMessageFromHer = herMessages[herMessages.length - 1].text;
+      const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
+
+      let styleContext = "";
+      const myCurrentChatMessages = messages.filter(m => m.from === 'me').map(m => m.text);
+      const herRecentMessages = herMessages.slice(-6).map(m => m.text);
+
+      if (myCurrentChatMessages.length >= 3) {
+        styleContext = `USER'S OWN SENT MESSAGES (learn their EXACT style from these):\n` +
+          myCurrentChatMessages.slice(-20).map((t, i) => `  ${i + 1}. ${t}`).join('\n');
+      } else if (globalStyle && globalStyle.length > 0) {
+        styleContext = `USER'S STYLE FROM OTHER CHATS (learn their EXACT style from these):\n` +
+          globalStyle.slice(0, 15).map((t, i) => `  ${i + 1}. ${t}`).join('\n');
+      } else {
+        styleContext = `No past style samples. Use a casual 20-something Yangon texting tone — all lowercase, short, Gen-Z slang when natural.`;
+      }
+
+      let styleInstruction = "";
+      if (replyStyle === 'tease') styleInstruction = `Playfully roast her or challenge her (ဟာဆရာ style).`;
+      else if (replyStyle === 'chill') styleInstruction = `Low investment, unbothered, very short.`;
+      else if (replyStyle === 'flirty') styleInstruction = `Smooth, romantic, try to move toward a date.`;
+      else if (replyStyle === 'argue') styleInstruction = `Disagree with her, play devil's advocate, be slightly cocky.`;
+      else if (replyStyle === 'persuade') styleInstruction = `Convince her to do what you want (like meeting up).`;
+      else styleInstruction = `Friendly but confident.`;
+
+      let directionInstruction = "";
+      if (autoDirection && autoDirection.trim() !== '') {
+        directionInstruction = `\nOVERRIDE DIRECTIVE: You MUST steer the conversation this way: "${autoDirection.trim()}".`;
+      }
+
+      const systemPrompt = `You are roleplaying as a SPECIFIC real person — a Gen-Z guy from Yangon — texting a girl he is interested in. You must sound EXACTLY like HIM. You are NOT an AI assistant, NOT a tutor, NOT a translator, NOT ChatGPT.
+
+=== HIS WRITING STYLE (STUDY THIS CAREFULLY) ===
+${styleContext}
+
+=== ANALYZE THESE BEFORE WRITING ===
+Study the samples above and extract every pattern:
+- Typical message length (1 word? 5 words? full sentence? multiple bubbles?)
+- Capitalization (all lowercase? Some caps? ALL CAPS for emphasis?)
+- Punctuation (periods at end? ellipses ...? No punctuation?)
+- Emoji/emoticons (which ones? how often? never?)
+- Slang and fillers (bro, lol, ngl, fr, haha, 😂, tbh, ...?)
+- Abbreviations (u, ur, r, wanna, gonna, idk, nvm?)
+- Burmese mixing (does he mix Burmese + English? Which words?)
+- Level of energy (dry? hyped? chill? playful?)
+
+=== CHAT CONTEXT ===
+${formattedHistory}
+
+=== HER LAST MESSAGE TO REPLY TO ===
+"${lastMessageFromHer}"
+
+${herRecentMessages.length > 2 ? `=== HER RECENT TEXTS (match her energy)\n` + herRecentMessages.map(t => `  - ${t}`).join('\n') : ''}
+
+=== HARD RULES ===
+1. Output ONLY the raw message text. No quotes. No "Me:". No narration. No explanation.
+2. LENGTH: match HIS average length. If he texts 3 words, do NOT send 2 sentences.
+3. PUNCTUATION: mirror his habits exactly. If he never uses periods, don't add them.
+4. EMOJIS: only use emojis HE uses. Never introduce new ones.
+5. LANGUAGE: match HER language. Burmese in → Burmese out. English in → English out. Mixed → mix the same way.
+6. VOICE: sound like a real 20-something Yangon guy — natural, casual, not formal Myanmar, not textbook English.
+7. NO AI PHRASES: never say "Sure", "I hope", "Let's", "That sounds", "Absolutely", "Great", "Of course".
+8. IMPERFECTION: real people use lowercase, skip punctuation, shorten words. Do the same.
+9. If his style is dry/one-word, BE dry/one-word. Do not be creative if he is not.
+10. If his style is playful/emoji-heavy, match that energy.
+
+STYLE TONE: ${styleInstruction}
+${directionInstruction}
+
+Return STRICT JSON:
+{
+  "vibe_review": "One sentence analyzing her vibe and what she wants from this exchange.",
+  "style_notes": "One sentence describing HIS writing style you matched (length, tone, emoji, language).",
+  "playful": "Exact message text — playful tone, HIS style",
+  "warm": "Exact message text — warm tone, HIS style",
+  "bold": "Exact message text — bold tone, HIS style",
+  "auto_reply": "Exact message text — best overall reply, HIS style"
+}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: TEXT_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Reply to her last message in HIS exact texting style.` }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.9
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errMsg = `Groq Error: ${response.status}`;
+        try {
+          const errData = await response.json();
+          errMsg = errData?.error?.message || errMsg;
+        } catch (e) {}
+        sendResponse({ error: 'API_ERROR', message: errMsg });
+        return;
+      }
+
+      const data = await response.json();
+
+      try {
+        const result = JSON.parse(data.choices[0].message.content);
+        sendResponse(result);
+      } catch (parseError) {
+        console.error("Cupid Parse Error: The AI did not return valid JSON.", data.choices[0].message.content);
+        sendResponse({ error: 'PARSE_ERROR', message: 'The AI returned a malformed response. Try again.' });
+      }
+
+    } catch (err) {
+      sendResponse({ error: 'NETWORK', message: err.message });
+    }
+  })();
+
+  return true;
+});

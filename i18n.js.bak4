@@ -1,0 +1,79 @@
+/**
+ * @fileoverview Internationalization (i18n) module for Cupid Extension.
+ * Stores all translatable strings, keyed by language code.
+ */
+
+const translations = {
+    // English locale
+    en: {
+        appName: "Cupid — AI Wingman",
+        description: "Premium AI dating co-pilot.",
+        apiTitle: "Authentication",
+        apiKeyPlaceholder: "gsk_...",
+        getApiKeyBtnText: "Get Groq API Key ↗",
+        autoPilotLabel: "Auto-Pilot Protocol",
+        autoDirectionLabel: "Directive (Optional)",
+        responseMatrixTitle: "Response Matrix",
+        normalVibe: "Normal",
+        teaseVibe: "🌶️ Tease",
+        chillVibe: "🧊 Chill",
+        flirtyVibe: "💖 Flirty",
+        argueVibe: "🗣️ Argue",
+        persuadeVibe: "🧠 Persuade",
+        generateBtnText: "Generate",
+        copyBtnText: "Copy",
+        executeBtnText: "Execute",
+        apiErrorKey: "MISSING_KEY",
+        apiErrorMsg: "API Key is required.",
+        runtimeErrorPrefix: "[ERROR]",
+        noResponseMessage: "Background script did not respond."
+    },
+
+    // Myanmar locale (Burmese)
+    my: {
+        appName: "ကူပစ် — AI Wingman", // Cupid - AI Wingman in Burmese
+        description: "အဆင့်မြင့် AI ချိန်းတွေ့ခြင်း အဖော်အဖြစ်။", // Premium AI dating co-pilot.
+        apiTitle: "အထောက်အထားစစ်ဆေးမှု", // Authentication
+        apiKeyPlaceholder: "gsk_...",
+        getApiKeyBtnText: "Groq API Key ရယူရန် ↗", // Get Groq API Key
+        autoPilotLabel: "အလိုအလျောက် အကောင်အထရုပ် စနစ်", // Auto-Pilot Protocol
+        autoDirectionLabel: "ညွှန်ကြားချက် (ရွေးချယ်နိုင်သည်)", // Directive (Optional)
+        responseMatrixTitle: "တုံ့ပြန်မှု ပုံစံများ", // Response Matrix
+        normalVibe: "ပုံမှန်", // Normal
+        teaseVibe: "🌶️ စနောက်ခြင်း", // Teasing
+        chillVibe: "🧊 အေးအေးဆေးဆေး", // Chill
+        flirtyVibe: "💖 ချစ်စရာကောင်းသော", // Flirty
+        argueVibe: "🗣️ ငြင်းခုံခြင်း", // Arguing
+        persuadeVibe: "🧠 ယ thuyếtကျအောင်လုပ်ခြင်း", // Persuading
+        generateBtnText: "ထုတ်ပေးရန်", // Generate
+        copyBtnText: "ကူးယူမည်", // Copy
+        executeBtnText: "အသုံးပြုမည်", // Execute
+        apiErrorKey: "API Key မရှိပါ",
+        apiErrorMsg: "API Key လိုအပ်ပါသည်။",
+        runtimeErrorPrefix: "[အမှား]",
+        noResponseMessage: "နောက်ခံစကရစ်ပ်က တုံ့ပြန်မှုမပေးခဲ့ပါ။"
+    }
+};
+
+/**
+ * Retrieves the translation for a given key and language.
+ * @param {string} lang - The language code ('en' or 'my').
+ * @param {string} key - The translation key.
+ * @returns {string | null} The translated string, or null if not found.
+ */
+function t(lang, key) {
+    const translationsByLang = translations[lang];
+    if (translationsByLang && translationsByLang[key]) {
+        return translationsByLang[key];
+    }
+    // Fallback to English if translation is missing or language is unsupported
+    console.warn(`Translation key "${key}" not found for language "${lang}". Falling back to 'en'.`);
+    const fallback = translations['en'];
+    if (fallback && fallback[key]) {
+        return fallback[key];
+    }
+    return `[MISSING_TRANSLATION:${key}]`;
+}
+
+// Expose the translation function globally or module-wise for use in content.js
+window.t = t;

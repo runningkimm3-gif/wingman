@@ -1,0 +1,202 @@
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const TEXT_MODEL = 'openai/gpt-oss-120b';
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'GENERATE_REPLIES') return false;
+
+  (async () => {
+    try {
+      const { apiKey, partnerName, messages, replyStyle, autoDirection, globalStyle } = request.payload;
+
+      if (!apiKey) { sendResponse({ error: 'MISSING_KEY', message: 'Please add your Groq API key.' }); return; }
+      const herMessages = messages.filter(m => m.from === 'them');
+      if (herMessages.length === 0) { sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' }); return; }
+
+      const lastMessageFromHer = herMessages[herMessages.length - 1].text;
+      const prevHerMessages = herMessages.slice(-8, -1).map(m => m.text);
+      const formattedHistory = messages.slice(-30).map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
+      const myCurrentChatMessages = messages.filter(m => m.from === 'me').map(m => m.text);
+
+      let styleContext = "";
+      if (myCurrentChatMessages.length >= 3) {
+        styleContext = `HIS EXACT STYLE (learn length, caps, punctuation, emoji, language mixing):\n` +
+          myCurrentChatMessages.slice(-15).map((t, i) => `  ${i + 1}. ${t}`).join('\n');
+      } else if (globalStyle && globalStyle.length > 0) {
+        styleContext = `HIS STYLE FROM OTHER CHATS:\n` +
+          globalStyle.slice(0, 10).map((t, i) => `  ${i + 1}. ${t}`).join('\n');
+      } else {
+        styleContext = `No samples — use casual 20-something Yangon tone.`;
+      }
+
+      let styleInstruction = "";
+      if (replyStyle === 'tease') styleInstruction = `Playful roast / ဟာဆရာ style.`;
+      else if (replyStyle === 'chill') styleInstruction = `Low investment, unbothered, short.`;
+      else if (replyStyle === 'flirty') styleInstruction = `Smooth, romantic, move toward a date.`;
+      else if (replyStyle === 'argue') styleInstruction = `Disagree, devil's advocate, cocky.`;
+      else if (replyStyle === 'persuade') styleInstruction = `Convince her toward what you want.`;
+      else styleInstruction = `Friendly but confident.`;
+
+      let directionInstruction = "";
+      if (autoDirection && autoDirection.trim() !== '') {
+        directionInstruction = `\nOVERRIDE: Steer conversation: "${autoDirection.trim()}".`;
+      }
+
+      // Build unique focus hints per tone so the model MUST diverge
+      const seed = Math.floor(Math.random() * 10000);
+
+      const systemPrompt = `You are ghostwriting a SPECIFIC real guy's texts — not an AI. Output goes to a real girl. If it sounds like AI, you fail.
+
+=== HIS EXACT STYLE ===
+${styleContext}
+
+=== FULL CHAT (last 30) ===
+${formattedHistory}
+
+=== HER PREVIOUS MESSAGES (context before last) ===
+${prevHerMessages.length ? prevHerMessages.map((t, i) => `  ${i + 1}. ${t}`).join('\n') : '  (none)'}
+
+=== HER LAST MESSAGE — reply MUST relate to THIS ===
+"${lastMessageFromHer}"
+
+=== ANTI-GENERIC LAW (this is what prevents repetition) ===
+
+Every reply must pass this test: **"Could this be sent to literally any girl in any chat?"**
+If yes → it's WRONG. Delete it, try again.
+
+Every reply MUST:
+- Reference a SPECIFIC word, topic, or detail from her last message or the chat context
+- Say something only TRUE in this exact conversation
+- Never start with a filler (haha, lol, yeah, true, fr, ngl, ok, hmm)
+
+BANNED STARTERS — never begin a reply with: haha, lol, lmao, yeah, true, fr, ngl, ok, okay, hmm, wow, oh, ah, sure.
+
+BANNED GENERIC PHRASES — never use: "how are you", "what's up", "that's cool", "sounds good", "let's catch up", "I'm down", "that's funny", "you're funny", "you're cute", "same here".
+
+=== THREE TONES MUST BE STRUCTURALLY DIFFERENT ===
+
+Playful → MUST be a QUESTION or a CHALLENGE. Different opening word from Warm and Bold. Roasts or pokes at something SHE said.
+  ✓ "wow so u really think that huh"
+  ✓ "ok miss thailand 😏 prove it"
+  ✗ "haha that's funny" (generic — REJECT)
+  ✗ "haha yeah" (starts with banned filler — REJECT)
+
+Warm → MUST reference a SPECIFIC thing she said. Soft, curious, engaging. No question needed but MUST acknowledge her words.
+  ✓ "ngl that thing u said about [specific detail] got me thinking"
+  ✓ "u seem tired today babe, everything good"
+  ✗ "that's sweet" (generic — REJECT)
+  ✗ "I hope you're doing well" (AI phrase — REJECT)
+
+Bold → MUST contain a DIRECTIVE / ACTION (propose, invite, or call out). Not just a statement.
+  ✓ "come over, we're watching something tonight"
+  ✓ "send me the pic then, don't be shy"
+  ✓ "u talk too much for someone who hasn't asked me out yet"
+  ✗ "we should hang out sometime" (generic — REJECT)
+  ✗ "I'm interested in you" (AI phrase — REJECT)
+
+Playful, Warm, Bold MUST have DIFFERENT first words AND different sentence shapes.
+
+=== STYLE RULES (his voice, always) ===
+1. Output ONLY raw message text. No quotes, no narration, no "Me:".
+2. Match HIS average message length.
+3. Match HIS punctuation (usually lowercase, no periods, no caps).
+4. Only use emoji HE uses. If unsure, none.
+5. Match HER language: Burmese → Burmese, English → English, mixed → mixed.
+6. Real 20-something Yangon voice — not textbook, not formal စာ.
+7. Callback to earlier messages or inside jokes when natural.
+
+STYLE TONE: ${styleInstruction}
+${directionInstruction}
+
+=== VIBE CHECK ===
+vibe_score (1-5):
+  1 = cold/dry, one-word replies, disengaged
+  2 = neutral, polite but flat
+  3 = warm, engaged, curious
+  4 = flirty, teasing, emoji, hints
+  5 = hot, clearly into it, initiating, dropping hints about meeting
+vibe_mood: warm | flirty | neutral | dry | confused | tense | cold
+vibe_review: 1-2 sentences on what she actually feels and wants.
+
+=== SCAM DETECTION (romance scam / fraud) ===
+Scan ENTIRE chat for: money requests, investment/crypto pushes, fast-love escalation, off-platform pressure, personal info requests, emergency sob stories, dodge video calls, vague identity, copypasta grammar, early sexual/nude asks, pressure tactics.
+
+Thresholds:
+- 2-3 flags → detected=true, confidence 40-60
+- 4-5 flags → detected=true, confidence 60-85
+- 6+ flags → detected=true, confidence 85-100
+- otherwise → detected=false, confidence 0-30
+
+red_flags: array of SHORT specific reasons drawn from THIS chat.
+advice: 1-sentence warning.
+Be conservative — normal flirting is NOT a scam.
+
+=== OUTPUT — STRICT JSON ===
+{
+  "vibe_score": 3,
+  "vibe_mood": "warm",
+  "vibe_review": "...",
+  "scam_alert": { "detected": false, "confidence": 0, "red_flags": [], "advice": "" },
+  "style_notes": "1 sentence on his style you matched",
+  "playful": "...",
+  "warm": "...",
+  "bold": "...",
+  "auto_reply": "..."
+}
+
+Diversity seed (for internal use only, ignore in output): ${seed}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: TEXT_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Write 3 truly different replies to her last message "${lastMessageFromHer}". Each must anchor to a specific detail from the chat. No filler openers. Vary first words. Run scam + vibe analysis.` }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 1.0,
+          top_p: 0.95
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errMsg = `Groq Error: ${response.status}`;
+        try { const e = await response.json(); errMsg = e?.error?.message || errMsg; } catch (e) {}
+        sendResponse({ error: 'API_ERROR', message: errMsg });
+        return;
+      }
+
+      const data = await response.json();
+      try {
+        const result = JSON.parse(data.choices[0].message.content);
+
+        // Deduplicate: if any two of playful/warm/bold match, kill the dup
+        const seen = new Set();
+        ['playful', 'warm', 'bold'].forEach(tone => {
+          if (result[tone]) {
+            const norm = result[tone].toLowerCase().trim();
+            if (seen.has(norm)) result[tone] = null;
+            else seen.add(norm);
+          }
+        });
+
+        sendResponse(result);
+      } catch (parseError) {
+        console.error('Cupid Parse Error:', data.choices[0].message.content);
+        sendResponse({ error: 'PARSE_ERROR', message: 'AI returned malformed response. Try again.' });
+      }
+
+    } catch (err) {
+      sendResponse({ error: 'NETWORK', message: err.message });
+    }
+  })();
+
+  return true;
+});

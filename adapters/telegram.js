@@ -8,8 +8,8 @@
     getPartnerName: () => {
       try {
         const el = document.querySelector('.peer-title, .ChatInfo .title, .MiddleHeader h3');
-        return el?.innerText?.trim() || 'Fake Partner';
-      } catch (e) { return 'Fake Partner'; }
+        return el?.innerText?.trim() || 'Partner';
+      } catch (e) { return 'Partner'; }
     },
     getComposerAnchor: () => {
       try {
@@ -20,13 +20,13 @@
       try {
         const rows = document.querySelectorAll('.bubble, .Message');
         const msgs = [];
-        Array.from(rows).slice(-30).forEach(row => {
+        Array.from(rows).slice(-20).forEach(row => {
           const textEl = row.querySelector('.text-content, .message-text, .translatable-message') || row;
           if (!textEl || !textEl.innerText) return;
           
-          // CLEAN BURMESE TEXT: Remove invisible zero-width spaces
           let text = textEl.innerText.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
-          if (!text) return;
+          // Ignore call logs, photos, system joins
+          if (!text || /^(joined|left|pinned|photo|video|outgoing call|incoming call|missed call|\d{1,2}:\d{2})/i.test(text)) return;
 
           const isMe = row.classList.contains('is-out') || row.classList.contains('own') || row.closest('.is-out, .own') !== null;
           msgs.push({ from: isMe ? 'me' : 'them', text: text });

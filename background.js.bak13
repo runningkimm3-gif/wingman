@@ -1,0 +1,245 @@
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const DEFAULT_MODEL = 'llama-3.1-8b-instant';
+
+function hasBurmese(t) { return /[\u1000-\u109F]/.test(t || ''); }
+function burmeseRatio(t) {
+  if (!t) return 0;
+  const c = t.replace(/\s+/g, '');
+  if (!c) return 0;
+  const m = c.match(/[\u1000-\u109F]/g);
+  return (m ? m.length : 0) / c.length;
+}
+function wordCount(t) { return (t || '').trim().split(/\s+/).filter(Boolean).length; }
+function charCount(t) { return (t || '').length; }
+function maxLen(herLen) {
+  if (herLen < 20) return 32;
+  if (herLen < 50) return 65;
+  if (herLen < 100) return 115;
+  return 165;
+}
+
+async function groq(apiKey, model, messages, opts = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeout || 35000);
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model, messages,
+        response_format: { type: 'json_object' },
+        temperature: opts.temperature ?? 0.95,
+        top_p: opts.top_p ?? 0.95,
+        max_tokens: opts.max_tokens || 1800
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      let msg = `Groq ${res.status}`;
+      try { const e = await res.json(); msg = e?.error?.message || msg; } catch (e) {}
+      const err = new Error(msg); err.status = res.status; throw err;
+    }
+    return await res.json();
+  } catch (e) { clearTimeout(timer); throw e; }
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'GENERATE_REPLIES') return false;
+
+  (async () => {
+    try {
+      const { apiKey, partnerName, messages, replyStyle, autoDirection, globalStyle } = request.payload;
+      if (!apiKey) { sendResponse({ error: 'MISSING_KEY', message: 'Add your Groq API key.' }); return; }
+      const her = messages.filter(m => m.from === 'them');
+      if (!her.length) { sendResponse({ error: 'NO_MSG', message: 'She has not sent any messages yet.' }); return; }
+
+      const stored = await chrome.storage.local.get('cupid_model');
+      const model = stored.cupid_model || DEFAULT_MODEL;
+
+      const last = her[her.length - 1].text;
+      const herLen = charCount(last);
+      const limit = maxLen(herLen);
+      const mustBurmese = hasBurmese(last) || her.filter(m => hasBurmese(m.text)).length > her.length / 3;
+
+      const his = messages.filter(m => m.from === 'me').map(m => m.text);
+      const fewShotSamples = his.slice(-8);
+      const recent = messages.slice(-20).map(m => `${m.from === 'me' ? 'Him' : 'Her'}: ${m.text}`).join('\n');
+
+      const fewShot = fewShotSamples.length >= 3
+        ? `HIS REAL MESSAGES — copy this exact tone, length, punctuation:\n${fewShotSamples.map(m => '  "' + m + '"').join('\n')}`
+        : '';
+
+      const langRule = mustBurmese
+        ? 'LANGUAGE: Burmese ONLY. Gen-Z Yangon casual. Use \u1014\u1004\u103A/\u1019\u1004\u103A\u1038 for you, \u1004\u102B for me OR omit pronouns. Endings: \u101C\u102C\u1038 \u101C\u1032 \u1014\u1032\u1037 \u1018\u1030\u1038 \u1010\u101A\u103A \u1019\u101A\u103A \u101C\u102D\u102F\u1000\u103A \u1015\u102B \u101F \u1000\u103D\u102C \u101B\u101A\u103A \u1016\u103C\u1005\u103A. NEVER use \u1001\u1004\u103A\u1017\u103B\u102B\u1038 \u1000\u103B\u103D\u1014\u103A\u1010\u1031\u102C\u103A \u101E\u100A\u103A \u1019\u100A\u103A \u104F \u1053 \u1015\u102B\u101E\u100A\u103A.'
+        : 'LANGUAGE: she wrote English, reply English.';
+
+      const genSys = `You ghostwrite texts as a real guy. NEVER sound like AI.
+
+${fewShot}
+
+${langRule}
+
+HARD RULES:
+- Each reply max ${limit} chars. Shorter = better.
+- Lowercase. No periods. No formality. No hedging.
+- Each reply MUST reference a specific word or detail from her last message.
+- Different first word per reply.
+- Banned starters: haha lol lmao yeah true fr ngl ok wow oh ah hmm sure.
+- Banned phrases: "I feel like", "sounds like", "that's cool", "makes sense", "let's", "we should".
+
+Vibe: ${replyStyle || 'normal'}
+${autoDirection ? 'Steer: ' + autoDirection : ''}
+
+CHAT:
+${recent}
+
+HER LAST: "${last}"
+
+Return JSON: {"replies": ["...", "...", "...", "...", "...", "..."]}`;
+
+      let raw;
+      try {
+        raw = await groq(apiKey, model, [
+          { role: 'system', content: genSys },
+          { role: 'user', content: 'Write 6 replies. Each \u2264' + limit + ' chars. Different angles, same language as her.' }
+        ], { temperature: 1.05, top_p: 0.98, max_tokens: 1400 });
+      } catch (e) {
+        sendResponse({ error: 'API_ERROR', message: e.message }); return;
+      }
+
+      let parsed;
+      try { parsed = JSON.parse(raw.choices[0].message.content); }
+      catch (e) { sendResponse({ error: 'PARSE_ERROR', message: 'AI returned malformed JSON.' }); return; }
+
+      const candidates = Array.isArray(parsed.replies) ? parsed.replies : [];
+
+      const clean = [];
+      const seen = new Set();
+      for (const c of candidates) {
+        if (!c || typeof c !== 'string') continue;
+        const t = c.trim();
+        if (!t) continue;
+        if (charCount(t) > limit * 1.5) continue;
+        if (mustBurmese && wordCount(t) >= 4 && burmeseRatio(t) < 0.15) continue;
+        const k = t.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        clean.push(t);
+      }
+
+      if (clean.length < 3) {
+        try {
+          const retry = await groq(apiKey, model, [
+            { role: 'system', content: genSys + '\n\nSTRICT MODE: every reply MUST be \u2264' + limit + ' chars AND in the SAME language as her last message.' },
+            { role: 'user', content: '6 replies. MAX ' + limit + ' chars. SAME language as her.' }
+          ], { temperature: 1.1, max_tokens: 1400 });
+          const p2 = JSON.parse(retry.choices[0].message.content);
+          const c2 = Array.isArray(p2.replies) ? p2.replies : [];
+          for (const c of c2) {
+            if (!c || typeof c !== 'string') continue;
+            const t = c.trim();
+            if (!t) continue;
+            if (charCount(t) > limit * 1.5) continue;
+            if (mustBurmese && wordCount(t) >= 4 && burmeseRatio(t) < 0.15) continue;
+            const k = t.toLowerCase();
+            if (seen.has(k)) continue;
+            seen.add(k);
+            clean.push(t);
+          }
+        } catch (e) {}
+      }
+
+      if (!clean.length) {
+        sendResponse({ error: 'LANG_ERROR', message: 'Could not produce valid replies. Tap Deal again.' });
+        return;
+      }
+
+      const toJudge = clean.slice(0, 8);
+
+      const judgeSys = `You evaluate candidate text-message replies from a guy to a girl. Pick the BEST 3.
+
+CHAT:
+${recent}
+
+HER LAST: "${last}"
+
+CANDIDATES:
+${toJudge.map((r, i) => `${i+1}. "${r}"`).join('\n')}
+
+REJECT any candidate that:
+- Sounds AI: formal, hedged, explanatory, "I feel like", "sounds like", "makes sense", "we should"
+- Would fit ANY girl in ANY chat (generic = reject)
+- Is longer than 1.5x her message length
+- Starts with a filler (haha, lol, yeah, ok, wow, hmm, true, fr, ngl)
+- Doesn't relate to a specific word from her last message
+
+From the survivors, label 3 as:
+- playful = question / challenge / roast
+- warm = references something specific, soft
+- bold = directive / proposal / action
+
+Also analyze:
+
+VIBE:
+vibe_score 1-5 (1=cold dry, 2=neutral, 3=warm, 4=flirty, 5=hot)
+vibe_mood: warm|flirty|neutral|dry|confused|tense|cold
+vibe_review: 1-2 sentences on her state
+chat_insight: 1 sentence on conversation arc
+
+SCAM (conservative - normal flirting is NOT scam):
+Money requests, investment/crypto, fast-love, off-platform, personal info, emergency, dodge video, vague identity.
+
+Return JSON:
+{
+  "vibe_score": 3,
+  "vibe_mood": "warm",
+  "vibe_review": "...",
+  "chat_insight": "...",
+  "scam_alert": {"detected": false, "confidence": 0, "red_flags": [], "advice": ""},
+  "playful": "...",
+  "warm": "...",
+  "bold": "...",
+  "auto_reply": "the single best one"
+}`;
+
+      let result;
+      try {
+        const judged = await groq(apiKey, model, [
+          { role: 'system', content: judgeSys },
+          { role: 'user', content: 'Evaluate and return JSON.' }
+        ], { temperature: 0.3, top_p: 0.9, max_tokens: 700 });
+        result = JSON.parse(judged.choices[0].message.content);
+      } catch (e) {
+        result = {
+          vibe_score: 3, vibe_mood: 'neutral', vibe_review: '', chat_insight: '',
+          scam_alert: { detected: false, confidence: 0, red_flags: [], advice: '' },
+          playful: toJudge[0] || null, warm: toJudge[1] || null, bold: toJudge[2] || null,
+          auto_reply: toJudge[0] || null
+        };
+      }
+
+      ['playful','warm','bold','auto_reply'].forEach(k => {
+        if (result[k] && typeof result[k] === 'string') {
+          result[k] = result[k].trim();
+          if (charCount(result[k]) > limit * 1.6) result[k] = null;
+        }
+      });
+
+      const finals = new Set();
+      ['playful','warm','bold'].forEach(k => {
+        if (result[k]) {
+          const n = result[k].toLowerCase();
+          if (finals.has(n)) result[k] = null;
+          else finals.add(n);
+        }
+      });
+
+      sendResponse(result);
+    } catch (err) {
+      sendResponse({ error: 'NETWORK', message: err.message });
+    }
+  })();
+
+  return true;
+});
