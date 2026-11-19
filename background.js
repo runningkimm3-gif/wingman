@@ -16,10 +16,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       const lastMessageFromHer = herMessages[herMessages.length - 1].text;
       
-      // Format chat history clearly
       const formattedHistory = messages.map(m => `${m.from === 'me' ? 'Me' : partnerName}: ${m.text}`).join('\n');
 
-      // Extract user's typing style
       const myCurrentChatMessages = messages.filter(m => m.from === 'me').map(m => m.text);
       let styleContext = "";
       if (myCurrentChatMessages.length >= 3) {
@@ -30,7 +28,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         styleContext = `Use a casual, modern Gen-Z lowercase texting style.`;
       }
 
-      // Define the Vibe
       let styleInstruction = "";
       if (replyStyle === 'tease') styleInstruction = `Playfully roast her, challenge her, or be slightly aloof.`;
       else if (replyStyle === 'chill') styleInstruction = `Low investment, 2-3 words max. Act busy.`;
